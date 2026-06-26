@@ -1,0 +1,21 @@
+{
+  "name": "linkedin-buddy",
+  "version": "1.0.0",
+  "description": "Protected LinkedIn OAuth and organization capability dashboard.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "linkedin",
+    "oauth2",
+    "express",
+    "testing"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.9.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2"
+  }
+}
