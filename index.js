@@ -1006,14 +1006,57 @@ function buildCapabilityStatus(label, ok, detail) {
   };
 }
 
-function deriveAccessStatus(results) {
-  const organizations = results?.organizations || [];
+function pickBestOrganization(organizations, predicate) {
   const approvedOrganizations = organizations.filter(
     (organization) => organization.state === "APPROVED"
   );
-  const anyOrganization = approvedOrganizations[0] || organizations[0] || null;
+  return (
+    approvedOrganizations.find(predicate) ||
+    organizations.find(predicate) ||
+    approvedOrganizations[0] ||
+    organizations[0] ||
+    null
+  );
+}
+
+function deriveAccessStatus(results) {
+  const organizations = results?.organizations || [];
+  const sampledOrganization =
+    pickBestOrganization(
+      organizations,
+      (organization) => Boolean(organization?.organizationPostsResult?.ok)
+    ) ||
+    pickBestOrganization(
+      organizations,
+      (organization) => Boolean(organization?.detailsResult?.ok)
+    );
+  const profileOrganization = pickBestOrganization(
+    organizations,
+    (organization) => Boolean(organization?.detailsResult?.ok)
+  );
+  const followerOrganization = pickBestOrganization(
+    organizations,
+    (organization) => Boolean(organization?.followerCountResult?.ok)
+  );
+  const visitorOrganization = pickBestOrganization(
+    organizations,
+    (organization) => Boolean(organization?.pageStatisticsResult?.ok)
+  );
+  const postListOrganization = pickBestOrganization(
+    organizations,
+    (organization) => Boolean(organization?.organizationPostsResult?.ok)
+  );
+  const postAnalyticsOrganization = pickBestOrganization(
+    organizations,
+    (organization) =>
+      Array.isArray(organization?.publishedPosts) &&
+      organization.publishedPosts.some(
+        (post) => post?.id && post?.socialActionsResult?.ok
+      )
+  );
+  const sampledPostSource = postAnalyticsOrganization || postListOrganization || sampledOrganization;
   const anyPublishedPost =
-    anyOrganization?.publishedPosts?.find((post) => post?.id) || null;
+    sampledPostSource?.publishedPosts?.find((post) => post?.id) || null;
 
   const statusItems = [
     buildCapabilityStatus(
@@ -1027,34 +1070,34 @@ function deriveAccessStatus(results) {
     ),
     buildCapabilityStatus(
       "Organization profile lookup",
-      Boolean(anyOrganization?.detailsResult?.ok),
-      anyOrganization?.detailsResult?.ok
-        ? `Organization details are readable for ${getOrganizationDisplayName(anyOrganization)}.`
-        : anyOrganization?.detailsResult?.error?.data?.message ||
+      Boolean(profileOrganization?.detailsResult?.ok),
+      profileOrganization?.detailsResult?.ok
+        ? `Organization details are readable for ${getOrganizationDisplayName(profileOrganization)}.`
+        : profileOrganization?.detailsResult?.error?.data?.message ||
             "Organization profile fields are not currently readable."
     ),
     buildCapabilityStatus(
       "Page follower count",
-      Boolean(anyOrganization?.followerCountResult?.ok),
-      anyOrganization?.followerCountResult?.ok
+      Boolean(followerOrganization?.followerCountResult?.ok),
+      followerOrganization?.followerCountResult?.ok
         ? "LinkedIn returned page follower totals."
-        : anyOrganization?.followerCountResult?.error?.data?.message ||
+        : followerOrganization?.followerCountResult?.error?.data?.message ||
             "Page follower totals are blocked or unavailable."
     ),
     buildCapabilityStatus(
       "Page visitor analytics",
-      Boolean(anyOrganization?.pageStatisticsResult?.ok),
-      anyOrganization?.pageStatisticsResult?.ok
+      Boolean(visitorOrganization?.pageStatisticsResult?.ok),
+      visitorOrganization?.pageStatisticsResult?.ok
         ? "LinkedIn returned aggregate page visitor analytics."
-        : anyOrganization?.pageStatisticsResult?.error?.data?.message ||
+        : visitorOrganization?.pageStatisticsResult?.error?.data?.message ||
             "Aggregate page visitor analytics are blocked or unavailable."
     ),
     buildCapabilityStatus(
       "Organization post list",
-      Boolean(anyOrganization?.organizationPostsResult?.ok),
-      anyOrganization?.organizationPostsResult?.ok
-        ? `LinkedIn returned ${anyOrganization?.publishedPosts?.length || 0} published posts for the sampled page.`
-        : anyOrganization?.organizationPostsResult?.error?.data?.message ||
+      Boolean(postListOrganization?.organizationPostsResult?.ok),
+      postListOrganization?.organizationPostsResult?.ok
+        ? `LinkedIn returned ${postListOrganization?.publishedPosts?.length || 0} published posts for the sampled page.`
+        : postListOrganization?.organizationPostsResult?.error?.data?.message ||
             "Organization posts could not be retrieved."
     ),
     buildCapabilityStatus(
@@ -1075,8 +1118,8 @@ function deriveAccessStatus(results) {
   ];
 
   return {
-    sampledOrganizationName: anyOrganization
-      ? getOrganizationDisplayName(anyOrganization)
+    sampledOrganizationName: sampledPostSource
+      ? getOrganizationDisplayName(sampledPostSource)
       : null,
     sampledPostId: anyPublishedPost?.id || null,
     items: statusItems,
@@ -1815,15 +1858,54 @@ function renderHomePage({ flashMessage = "" } = {}) {
           "Unknown organization";
       }
 
+      function pickBestOrganizationClient(organizations, predicate) {
+        const approvedOrganizations = organizations.filter((organization) => organization.state === "APPROVED");
+        return approvedOrganizations.find(predicate) ||
+          organizations.find(predicate) ||
+          approvedOrganizations[0] ||
+          organizations[0] ||
+          null;
+      }
+
       function deriveAccessStatusClient(results) {
         const organizations = results?.organizations || [];
-        const approvedOrganizations = organizations.filter((organization) => organization.state === "APPROVED");
-        const anyOrganization = approvedOrganizations[0] || organizations[0] || null;
-        const anyPublishedPost = anyOrganization?.publishedPosts?.find((post) => post?.id) || null;
+        const sampledOrganization = pickBestOrganizationClient(
+          organizations,
+          (organization) => Boolean(organization?.organizationPostsResult?.ok)
+        ) || pickBestOrganizationClient(
+          organizations,
+          (organization) => Boolean(organization?.detailsResult?.ok)
+        );
+        const profileOrganization = pickBestOrganizationClient(
+          organizations,
+          (organization) => Boolean(organization?.detailsResult?.ok)
+        );
+        const followerOrganization = pickBestOrganizationClient(
+          organizations,
+          (organization) => Boolean(organization?.followerCountResult?.ok)
+        );
+        const visitorOrganization = pickBestOrganizationClient(
+          organizations,
+          (organization) => Boolean(organization?.pageStatisticsResult?.ok)
+        );
+        const postListOrganization = pickBestOrganizationClient(
+          organizations,
+          (organization) => Boolean(organization?.organizationPostsResult?.ok)
+        );
+        const postAnalyticsOrganization = pickBestOrganizationClient(
+          organizations,
+          (organization) =>
+            Array.isArray(organization?.publishedPosts) &&
+            organization.publishedPosts.some(
+              (post) => post?.id && post?.socialActionsResult?.ok
+            )
+        );
+        const sampledPostSource = postAnalyticsOrganization || postListOrganization || sampledOrganization;
+        const anyPublishedPost = sampledPostSource?.publishedPosts?.find((post) => post?.id) || null;
 
         return {
-          sampledOrganizationName: anyOrganization
-            ? getOrganizationDisplayNameClient(anyOrganization)
+          sampledOrganizationName: sampledPostSource
+            ? getOrganizationDisplayNameClient(sampledPostSource)
             : null,
           sampledPostId: anyPublishedPost?.id || null,
           items: [
@@ -1838,34 +1920,34 @@ function renderHomePage({ flashMessage = "" } = {}) {
             ),
             buildCapabilityStatus(
               "Organization profile lookup",
-              Boolean(anyOrganization?.detailsResult?.ok),
-              anyOrganization?.detailsResult?.ok
-                ? "Organization details are readable for " + getOrganizationDisplayNameClient(anyOrganization) + "."
-                : anyOrganization?.detailsResult?.error?.data?.message ||
+              Boolean(profileOrganization?.detailsResult?.ok),
+              profileOrganization?.detailsResult?.ok
+                ? "Organization details are readable for " + getOrganizationDisplayNameClient(profileOrganization) + "."
+                : profileOrganization?.detailsResult?.error?.data?.message ||
                     "Organization profile fields are not currently readable."
             ),
             buildCapabilityStatus(
               "Page follower count",
-              Boolean(anyOrganization?.followerCountResult?.ok),
-              anyOrganization?.followerCountResult?.ok
+              Boolean(followerOrganization?.followerCountResult?.ok),
+              followerOrganization?.followerCountResult?.ok
                 ? "LinkedIn returned page follower totals."
-                : anyOrganization?.followerCountResult?.error?.data?.message ||
+                : followerOrganization?.followerCountResult?.error?.data?.message ||
                     "Page follower totals are blocked or unavailable."
             ),
             buildCapabilityStatus(
               "Page visitor analytics",
-              Boolean(anyOrganization?.pageStatisticsResult?.ok),
-              anyOrganization?.pageStatisticsResult?.ok
+              Boolean(visitorOrganization?.pageStatisticsResult?.ok),
+              visitorOrganization?.pageStatisticsResult?.ok
                 ? "LinkedIn returned aggregate page visitor analytics."
-                : anyOrganization?.pageStatisticsResult?.error?.data?.message ||
+                : visitorOrganization?.pageStatisticsResult?.error?.data?.message ||
                     "Aggregate page visitor analytics are blocked or unavailable."
             ),
             buildCapabilityStatus(
               "Organization post list",
-              Boolean(anyOrganization?.organizationPostsResult?.ok),
-              anyOrganization?.organizationPostsResult?.ok
-                ? "LinkedIn returned " + (anyOrganization?.publishedPosts?.length || 0) + " published posts for the sampled page."
-                : anyOrganization?.organizationPostsResult?.error?.data?.message ||
+              Boolean(postListOrganization?.organizationPostsResult?.ok),
+              postListOrganization?.organizationPostsResult?.ok
+                ? "LinkedIn returned " + (postListOrganization?.publishedPosts?.length || 0) + " published posts for the sampled page."
+                : postListOrganization?.organizationPostsResult?.error?.data?.message ||
                     "Organization posts could not be retrieved."
             ),
             buildCapabilityStatus(

@@ -124,6 +124,8 @@ For `linkedin-buddy.aiiq.uk`:
 - Keep `APP_COOKIE_SECURE=true` in production
 - Keep the LinkedIn redirect URI set to `https://linkedin-buddy.aiiq.uk/callback`
 
+For the exact confirmed VPS update procedure for this project, see [DEPLOYMENT.md](./DEPLOYMENT.md).
+
 Example Nginx block:
 
 ```nginx
