@@ -1757,6 +1757,17 @@ function renderHomePage({ flashMessage = "" } = {}) {
 
       const resultRoot = document.getElementById("result");
       const orgListRoot = document.getElementById("orgList");
+      const accessGridRoot = document.querySelector(".access-grid");
+      const accessStatusNoteRoot = accessGridRoot ? accessGridRoot.previousElementSibling : null;
+      const accessStatusLiveInfoRoot = document.createElement("div");
+      accessStatusLiveInfoRoot.className = "footer-note";
+      accessStatusLiveInfoRoot.style.marginTop = "8px";
+      accessStatusLiveInfoRoot.textContent = initialSession.isAuthenticated
+        ? "Refreshing live LinkedIn data when this page loads."
+        : "No saved token yet, so live LinkedIn checks are unavailable.";
+      if (accessGridRoot && accessStatusNoteRoot?.parentNode) {
+        accessStatusNoteRoot.parentNode.insertBefore(accessStatusLiveInfoRoot, accessGridRoot);
+      }
 
       function renderResult(title, payload) {
         const state = payload?.ok === false || payload?.error ? "fail" : payload?.attempted === false ? "warn" : "ok";
@@ -1791,6 +1802,110 @@ function renderHomePage({ flashMessage = "" } = {}) {
         }
 
         return parsed.toLocaleString();
+      }
+
+      function buildCapabilityStatus(label, ok, detail) {
+        return { label, ok, detail };
+      }
+
+      function getOrganizationDisplayNameClient(organization) {
+        return organization?.name ||
+          organization?.vanityName ||
+          organization?.organizationUrn ||
+          "Unknown organization";
+      }
+
+      function deriveAccessStatusClient(results) {
+        const organizations = results?.organizations || [];
+        const approvedOrganizations = organizations.filter((organization) => organization.state === "APPROVED");
+        const anyOrganization = approvedOrganizations[0] || organizations[0] || null;
+        const anyPublishedPost = anyOrganization?.publishedPosts?.find((post) => post?.id) || null;
+
+        return {
+          sampledOrganizationName: anyOrganization
+            ? getOrganizationDisplayNameClient(anyOrganization)
+            : null,
+          sampledPostId: anyPublishedPost?.id || null,
+          items: [
+            buildCapabilityStatus(
+              "Organization ACL discovery",
+              Boolean(results?.organizationAclResult?.ok),
+              results?.organizationAclResult?.ok
+                ? organizations.length + " organizations visible to this token."
+                : results?.organizationAclResult?.error?.data?.message ||
+                    results?.organizationAclResult?.note ||
+                    "LinkedIn did not return organization ACLs."
+            ),
+            buildCapabilityStatus(
+              "Organization profile lookup",
+              Boolean(anyOrganization?.detailsResult?.ok),
+              anyOrganization?.detailsResult?.ok
+                ? "Organization details are readable for " + getOrganizationDisplayNameClient(anyOrganization) + "."
+                : anyOrganization?.detailsResult?.error?.data?.message ||
+                    "Organization profile fields are not currently readable."
+            ),
+            buildCapabilityStatus(
+              "Page follower count",
+              Boolean(anyOrganization?.followerCountResult?.ok),
+              anyOrganization?.followerCountResult?.ok
+                ? "LinkedIn returned page follower totals."
+                : anyOrganization?.followerCountResult?.error?.data?.message ||
+                    "Page follower totals are blocked or unavailable."
+            ),
+            buildCapabilityStatus(
+              "Page visitor analytics",
+              Boolean(anyOrganization?.pageStatisticsResult?.ok),
+              anyOrganization?.pageStatisticsResult?.ok
+                ? "LinkedIn returned aggregate page visitor analytics."
+                : anyOrganization?.pageStatisticsResult?.error?.data?.message ||
+                    "Aggregate page visitor analytics are blocked or unavailable."
+            ),
+            buildCapabilityStatus(
+              "Organization post list",
+              Boolean(anyOrganization?.organizationPostsResult?.ok),
+              anyOrganization?.organizationPostsResult?.ok
+                ? "LinkedIn returned " + (anyOrganization?.publishedPosts?.length || 0) + " published posts for the sampled page."
+                : anyOrganization?.organizationPostsResult?.error?.data?.message ||
+                    "Organization posts could not be retrieved."
+            ),
+            buildCapabilityStatus(
+              "Create organization posts",
+              results?.grantedScopes?.includes("w_organization_social"),
+              results?.grantedScopes?.includes("w_organization_social")
+                ? "This token can attempt page post creation for approved organizations."
+                : "The token is missing w_organization_social."
+            ),
+            buildCapabilityStatus(
+              "Per-post social analytics",
+              Boolean(anyPublishedPost?.socialActionsResult?.ok),
+              anyPublishedPost?.socialActionsResult?.ok
+                ? "LinkedIn returned post-level social analytics."
+                : anyPublishedPost?.socialActionsResult?.error?.data?.message ||
+                    "Per-post analytics have not been returned for the sampled post."
+            ),
+          ],
+        };
+      }
+
+      function renderAccessStatus(results) {
+        if (!accessGridRoot || !accessStatusNoteRoot) {
+          return;
+        }
+
+        const accessStatus = deriveAccessStatusClient(results);
+        accessStatusNoteRoot.textContent = accessStatus.sampledOrganizationName
+          ? "Sampled page: " + accessStatus.sampledOrganizationName + (accessStatus.sampledPostId ? " · Sampled post: " + accessStatus.sampledPostId : "")
+          : "No organization sample is available yet. Run the full check after logging in.";
+
+        accessGridRoot.innerHTML = accessStatus.items.map((item) => \`
+          <div class="access-card">
+            <div class="access-top">
+              <strong>\${escapeHtml(item.label)}</strong>
+              <span class="chip \${item.ok ? "ok" : "fail"}">\${item.ok ? "Allowed" : "Blocked"}</span>
+            </div>
+            <div class="access-detail">\${escapeHtml(item.detail)}</div>
+          </div>
+        \`).join("");
       }
 
       function renderPayloadVisualization(title, payload) {
@@ -1987,9 +2102,16 @@ function renderHomePage({ flashMessage = "" } = {}) {
       }
 
       async function runAllChecks() {
+        accessStatusLiveInfoRoot.textContent = "Refreshing live LinkedIn data...";
         const payload = await callApi("/api/test/all");
         renderResult("Full Capability Check", payload);
-        renderOrganizations(payload);
+        if (payload?.organizations) {
+          renderOrganizations(payload);
+          renderAccessStatus(payload);
+          accessStatusLiveInfoRoot.textContent = "Live LinkedIn data loaded at " + new Date().toLocaleString() + ".";
+        } else {
+          accessStatusLiveInfoRoot.textContent = payload?.error || "Live LinkedIn refresh failed.";
+        }
       }
 
       document.querySelectorAll(".test-button").forEach((button) => {
@@ -2017,8 +2139,21 @@ function renderHomePage({ flashMessage = "" } = {}) {
 
       if (initialResults) {
         renderOrganizations(initialResults);
+        renderAccessStatus(initialResults);
       } else {
         renderOrganizations(null);
+      }
+
+      if (initialSession.isAuthenticated) {
+        runAllChecks().catch((error) => {
+          accessStatusLiveInfoRoot.textContent = "Live LinkedIn refresh failed: " + error.message;
+          renderResult("Full Capability Check", {
+            ok: false,
+            error: {
+              message: error.message,
+            },
+          });
+        });
       }
     </script>
   </body>
